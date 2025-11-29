@@ -1,0 +1,525 @@
+
+<h4>Ejemplo GPT-2 transformer </h4>
+Codigo usando el diseño del Transformer<br/>
+Como el modelo de transformer NO es igual a otros modelos, no se debe de interpretar como la clasica red neuronal de  varias capas de neuronas y las entradas son independientes (en paralelo). Aqui son secuenciales. <br/>
+<br/>
+
+<h4>Ver la tokenizacion </h4>
+<pre>tokens = tokenizer(texto, return_tensors="pt")
+print("=== IDS DE TOKENS (input_ids) ===")
+print(tokens["input_ids"])
+print("Shape de input_ids:", tokens["input_ids"].shape)
+  # (1, n_tokens)
+print()
+# esto devolveria la lista normal y no un tensor
+print("Lista normal de tokens:", tokens["input_ids"]) </pre>
+resultado :  <br/>
+=== IDS DE TOKENS (input_ids) === <br/>
+tensor([[   39,  5708, 27943,    78,   198, 22362,    64,  1658,   555,    64,
+           778,   518,  7012,   390, 11241,   528, 49443,  1103,    13,   198]])<br/>
+Shape de input_ids: torch.Size([1, 20])<br/>
+<br/>
+Lista normal de tokens: tensor([[   39,  5708, 27943,    78,   198, 22362,    64,  1658,   555,    64, 778,   518,  7012,   390, 11241,   528, 49443,  1103,    13,   198]])<br/>
+<br/>
+
+Esto quiere decir que del texto original que es:  <br/>
+<pre>Hola mundo
+Esta es una prueba de tokenizacion real. </pre>
+Se generaron 20 tokens, o sea 20 entradas. <br/>
+
+<br/>
+<h4>Como funciona </h4>
+<ol>
+  <li><b>Generacion de token: </b> <br/>
+    Partimos desde los 20 token (lo que hicimos arriba)<br/>
+    <br/>
+  </li>
+
+  <li><b>embedding x index ID</b>: <br/>
+    Ahora GPT tiene una tabla de embeddings token que usara para crear un vector de 768 columnas. con los tokens IDs  se obtendra un vector fijo de 768 dimensiones.<br/>
+    Lo que esperamos un vector de 768 columnas x 20 filas que sea igual al que tiene asignado ese tokenID. Esto  valor es unico y por ejemplo 'H' o 'ello' tiene un token y siempre va a tener el mismo token. <br/>
+    <br/>
+  </li>
+
+  <li><b>embedding de posicion:</b> <br/>
+    Despues generamos otro vector de 768 columnas tambien desde una tabla a parte (no es la misma que antes) pero segun la posicion, es decir, cuando tiene la posicion 1, tendra un vector de 768 segun la posicion. <br/>
+    Se obtiene otro embedding desde una tabla diferente (embedding de posicion).  <br/>
+    Se genera un vector de 768 dimensiones segun la posicion del token en la secuencia.<br/>
+    <br/>
+  </li>
+
+  <li><b>embeddings iniciales contextualizados y por posicion:</b> <br/>
+    Ahora sumamos el primer vector segun el ID Token + 
+      el Vector segun su Posicion.  <br/>
+    Nota: <br/>
+    La logica es que las palabras hello indican algo en el lenguaje... Todos sabemos que es para saludar , y la posicion en donde se encuentre en el prompt tambien quiere decir algo. <br/>
+    Aqui esta la magia: Todo esto se hace en el entrenamiento y esta enorme ! y despues queda fijo despues del entrenamiento y no cambia, lo cual lo mas muy manejable.<br/>
+    El codigo para generar estas tablas tan precisas es absolutamente genial, el equipo de programadores que hizo esto fue el que hizo posible que essto funcionara sin duda !!! <br/>
+    Y ahora tiene sentido la cantidad increible que se gasta al entrenar a una AI. <br/>
+    <br/>
+
+    En esta linea se puede ver el numero de token y el largo de 768 que es fijo para cada vector en particular. <br/>
+    <pre>Shape de embeddings: torch.Size([1, 20, 768])</pre>
+    Y aqui se ven algunos ejemplos de los embedding finales: <br/>
+    Primer embedding (primeros 10 valores): <br/>
+    tensor([-0.2077, -0.1556, -0.1638,  0.0468, -0.0956, -0.3012,  0.1546,  0.1558,
+            -0.3139, -0.0316]) <br/>
+    Aqui solo se mostraron los primeros 10 pero en realidad hay 768 valores que forman ese vector. <br/>
+    <br/>
+  </li>
+
+
+  <li>
+    <b>Mirar la relacion de la atencion </b><br/>
+    Que cada token pueda "mirar" a los demas para reinterpretarse considerando el contexto completo. <br/>
+    Ahora GPT tiene como su entrenamiento tambien otra tabla con matrices de pesos entrenadas (W_Q, W_K, W_V).
+    Elemento  .Que es?  .De donde viene?
+    X Embedding inicial (ID + posicion) Calculado despues de la tokenizacion
+    W_Q Matriz de pesos para Query  Aprendida en entrenamiento (valor fijo)
+    W_K Matriz de pesos para Key  Aprendida en entrenamiento (valor fijo)
+    W_V Matriz de pesos para Value  Aprendida en entrenamiento (valor fijo)
+    <br/>
+    <br/>
+    Q y K se obtienen multiplicando el embedding X por W_Q y W_K respectivamente: <br/>
+    Asi que ahora puede calcular la formula de abajo con los valores.
+    Q = Query    (Que estoy buscando) <br/>
+    K = Key      (Que informacion tengo)<br/>
+    V = Value    (La informacion que se comparte)<br/>
+    Eso se hace asi:<br/>
+    <br/>
+    ini<br/>
+    <br/>
+    Formula para calcular cuanto un token debe atender a los demas tokens usando los datos de Q y K:
+    <pre>attention_scores = softmax(Q * K^T / &radic;d_k)</pre>
+    Nota: En esta formula no esta el valor de <b>"V"</b>, aqui aun no se modifica el embedding, solo se calculan los pesos de atencion. <br/>
+    <br/>
+    X = el embeding ultimo que se formo con el ID token + posicion y que es un vector de 768 columnas. <br/>
+    Asi se obtiene un vector N, donde N es el total de Token originales.  <br/>
+    En el vector se haya un numero decimal, y la suma de todos los valores de atencion debe de resultar en 1. <br/>
+    0.1 + 0.8 + 0,1 +..... = 1 <br/>
+    Resumen: Vamos a obtener un vector de 20 filas y 20 columnas. Solo representa pesos de atencion entre tokens.
+    Cada fila es el token que observa.
+    Cada columna es el token al que se le presta atencion.<br/>
+    <br/>
+  </li>
+
+
+
+  <li> <b>"preparar" los embeddings para el mecanismo de atencion:</b>  
+    <pre>V = X * W_V</pre>
+    X = (embedding_token + embedding_posicion) (el que vimos arriba = 20x768) <br/>
+    W_V es una matriz de pesos entrenada, parte del modelo. <br/>
+    W_V -> matriz de dimensiones (768 x 768) <br/>
+    <pre>(20 x 768) = (20 x 768) * (768 x 768)</pre>
+    Nota:<br/>
+    Q y K se usan para calcular cuanto se debe prestar atencion. <br/>
+    V es la informacion que realmente se transfiere entre tokens.<br/>
+    <br/>
+  </li>
+
+
+
+  <li><b>Aplicacion de los pesos de atencion sobre V:</b><br/>
+    Una vez calculada la matriz de atencion (<code>20 x 20</code>), se aplica a los vectores V como resolvimos arriba. <br/>
+    (<code>20 x 768</code>) para generar el nuevo embedding contextualizado para cada token: <br/>
+    <pre>
+    nuevo_embedding[i] = &Sigma; (attention_scores x V) 
+    </pre>
+    (i y j son filas y columnas)  <br/>
+    Resultado final de esta etapa: <br/>
+    <pre>(20 x 768)</pre><br/>
+    Ahora cada token contiene informacion propia (embedding inicial) + informacion
+    proveniente de todos los demas tokens (dentro del contexto). <br/>
+    Aqui el modelo aplica relaciones aprendidas durante entrenamiento, pero las aplica dinamicamente al contexto del input, sin requerir acceso al dataset en tiempo de inferencia.
+
+    Operacion: se multiplica el valor de atencion de cada token por su correspondiente vector V[j], y luego se suman todos los resultados (se incluye a su mismo). <br/>
+    El resultado es el nuevo embedding del token i, ya contextualizado. <br/>
+    Este resultado es el <b>Embedding Score</b>
+    <br/>
+
+
+
+    <pre>Ejemplo ilustrativo
+    Frase:
+    "Hoy martes llueve"
+    Queremos calcular el nuevo embedding de "hoy".
+    Supongamos la atencion de "hoy" es:
+    + Esto quiere decir que estamos usando el token "hoy"
+    y en base a ese token sacamos la atencion de hoy, 
+    martes y llueve.
+    Asi que la atencion de "hoy" con respecto a si mismo 
+    (hoy) es 0.2
+    --------- Valores de Atencion ---------
+    token j "hoy" "martes"  "llueve"
+    peso   0.2     0.7       0.1
+
+    Y V[j] (simplificado a 4 valores):
+    + Estos son los valores no en tokens sino en 
+    un vector de 4 dimensiones de cada uno de los 
+    tokens.
+    V["hoy"]    = [0.3, 0.2, 0.1, 0.5]
+    V["martes"] = [-0.4, 0.6, 0.3, -0.2]
+    V["llueve"] = [0.7, -0.1, 0.0, 0.2]
+
+
+    + Como no hacerlo +
+    Si multiplicaras solo por su propia atencion:
+    nuevo("hoy") = 0.2 x V["hoy"] 
+                 = [0.06, 0.04, 0.02, 0.10]
+    + Ok
+
+    No refleja contexto.
+    Ahora con la sumatoria real:
+    nuevo("hoy") =
+      0.2xV["hoy"] +
+      0.7xV["martes"] +
+      0.1xV["llueve"]
+
+    0.2x[0.3, 0.2, 0.1, 0.5]  =  [0.06, 0.04, 0.02, 0.10]
+    0.7x[-0.4, 0.6, 0.3, -0.2] = [-0.28, 0.42, 0.21, -0.14]
+    0.1x[0.7, -0.1, 0.0, 0.2]  =  [0.07, -0.01, 0.00, 0.02]
+    --------------------------------------------------------
+    Total                     = [-0.15, 0.45, 0.23, -0.02]
+
+
+    Ahora "hoy" esta influenciado por el hecho de que es 
+    martes, un contexto que antes no tenia. 
+    + Esto es cierto porque esta sumando el valor de 
+    [-0.28, 0.42, 0.21, -0.14] y eso es valioso, pero 
+    tambien esta sumando los otros dos valores de hoy y 
+    llueve, asi que no la influencia en realidad no es 
+    solo de martes sino de los 3. <br/>
+    Sin embargo, al tener ‘martes' el mayor peso de 
+    atencion (0.7), su contribucion es la dominante, 
+    aunque numericamente no haya forma de reflejarlo."
+    Esto es exactamente lo que permite que el modelo "
+    entienda" relaciones. </pre>
+    <br/>
+  </li>
+
+
+
+  <li><b>Residual Connection (Skip Connection): </b> 
+    <pre>Embedding_Residual = X + Embedding_Score </pre>
+    <br/>
+    Correcto.<br/>
+    El embedding contextualizado por la atencion no reemplaza al original. Se combina con el mediante suma elemento a elemento.<br/>
+    <br/>
+    Esto es clave respecto a tu duda anterior:<br/>
+    <br/>
+    "Como se conserva la informacion original si la atencion lleva parte de ella hacia otro token?"<br/>
+    <br/>
+    Gracias al residual, el embedding mantiene parte de la representacion original (X) + la representacion contextualizada (Embedding_Score).<br/>
+    Por eso no se pierde completamente el significado propio del token ya que es el Embedding 'X' <br/>
+    <br/>
+  </li>
+
+
+
+  <li><b>LayerNorm</b> <br/>
+    embedding_Normalized = (x - media) / sqrt(varianza + epsilon) <br/>
+    <br/>
+    x = Es el vector anterior con el Residual.<br/>
+    Ejemplo: x = [2.0, 0.5, 1.5, 3.0] <br/>
+    <br/>
+    <b>Calculo de la Varianza</b>: <br/>
+    Media = es el promedio, = (2.0 + 0.5 + 1.5 + 3.0) / 4 = 1.75<br/>
+    Varianza: Promedio de (x_i - media)^2 <br/>
+    Esto se hace con todos los valores del vector embedding : <br/>
+    <pre>i x<sub>i</sub>  x<sub>i</sub> - media  (x<sub>i</sub> - media)^2 </pre>
+    1)  x= 2.0  --> 2.0 - 1.75 = 0.25  --> 0.25^2    = 0.0625 <br/>
+    Varianza= 0.0625 <br/>
+    Esto lo hacemos con todos las filas del vector: <br/>
+    2)  x= 0.5  --> 0.5 - 1.75 = -1.25 --> (-1.25)^2 = 1.5625<br/>
+    <br/>
+    Ahora hacemos el promedio: <br/>
+    varianza = (0.0625 + 1.5625 + 0.0625 + 1.5625) / 4<br/>
+    varianza = (3.25) / 4<br/>
+    varianza = 0.8125<br/>
+    <br/>
+    Seguimos (para completar el concepto) <br/>
+    Con epsilon = 1e-5 -> 0.00001<br/>
+    sqrt(varianza + epsilon)<br/>
+    = sqrt(0.8125 + 0.00001)<br/>
+    &asymp; sqrt(0.81251)<br/>
+    &asymp; 0.90139<br/>
+    fin del segundo termino. <br/>
+    <br/>
+    Ahora el primer termino: <br/>
+    <pre>x_normalizado = (x - media) / 0.90139</pre>
+    Y aplicamos esto a cada uno de los valores del vector: <br/>
+    [2.0  - 1.75] / 0.90139 =  0.25 / 0.90139 =  0.277<br/>
+    [0.5  - 1.75] / 0.90139 = -1.25 / 0.90139 = -1.386<br/>
+    [1.5  - 1.75] / 0.90139 = -0.25 / 0.90139 = -0.277<br/>
+    [3.0  - 1.75] / 0.90139 =  1.25 / 0.90139 =  1.386<br/>
+    &asymp; [ 0.277,  -1.386,  -0.277,   1.386 ] <br/>
+    <br/>
+    Esto permite estabilizar los valores sin perder la direccion del vector. <br/>
+    La forma (direccion) del vector sigue apuntando hacia donde apuntaba originalmente, pero ahora esta escalada con una media = 0 y varianza &asymp; 1.<br/>
+    <br/>
+    Resumen: <br/>
+    media &asymp; (1.28864 + (-1.0993) + (-0.638) + 1.88958) / 4<br/>
+         &asymp; 0.36048 <br/>
+    varianza &asymp; media((x<sub>i</sub> - media)^2)<br/>
+             &asymp; aprox 1.07<br/>
+    <br/>
+    desviacion estandar &asymp; sqrt(1.07) &asymp; 1.034<br/>
+    <br/>
+    embedding_Normalized = (Embedding_Residual - media) / desviacion estandar<br/>
+    Resultado aprox: <br/>
+    embedding_Normalized &asymp; [ 0.894, -1.41, -0.97, 1.48 ]<br/>
+    <br/>
+  </li>
+
+
+
+  <li><b>Feed Forward Network (FFN): </b><br/>
+    <ol>
+        Modelo simplificado:<br/>
+        1a).Expansion: 4 -> 6<br/>
+        1b).ReLU<br/>
+        1c).Contraccion: 6 -> 4<br/>
+        (los pesos son inventados para ilustrar el proceso, NO importan los valores exactos, sino la transformacion) <br/><br/>
+      <li><b>Paso 1a). Proyeccion hacia dimension mayor:</b>
+        <pre>h1 = x_norm * W1 + b1</pre>
+        Aqui W1 y b1 son pesos aprendedidos en el entrenamiento, los genera el sistema cuando se le entrena. <br/>
+        Seguimos con el ejemplo anterior del ultimo vector normalizado: <br/>
+        estos son ejemplos de w1=
+        <pre>W1 =
+        [
+          [ 0.5, -0.3,  0.2,  0.0,  0.1, -0.4 ],
+          [ 0.1,  0.7, -0.5,  0.3, -0.2,  0.6 ],
+          [ 0.4, -0.1,  0.3, -0.2,  0.8,  0.5 ],
+          [-0.2,  0.2,  0.4,  0.1,  0.3,  0.1 ]
+        ]</pre>
+        Esto es la bias o sesgo: 
+        <pre>b1 = [ 0.1, 0.0, 0.2, -0.1, 0.05, 0.0 ] </pre>
+        Este es un ejemplo de la columna 1 de multiplicar (x_norm * 1) + b1:
+        <pre>0.277 x 0.5  =  0.1385
+        -1.386 x 0.1 = -0.1386
+        -0.277 x 0.4 = -0.1108
+         1.386 x -0.2 = -0.2772
+        -----------------------------------
+        Suma parcial = -0.3881
+        + b1[0] = 0.1
+        = **-0.2881**</pre>
+        Este es el resultado: <br/>
+        <pre>h1 = [ -0.2881, -0.7484, 1.4197, -0.3218, 0.5491, -0.9423 ]</pre>
+        (el primer resultado es el de la columna 1 ) <br/>
+        Resultado de las operaciones: 
+        Este vector ya cambio su direccion original (transformacion lineal). <br/>
+        Ahora tiene dimension mayor (expansion a 6D) -> permite que la red capture relaciones mas complejas.<br/>
+        <br/>
+      </li>
+
+      <li><b>Paso 1b). - Aplicacion de ReLU</b> <br/>
+        <pre>ReLU(x) = max(0, x)</pre>
+        Los valores negativos se reemplazan por 0 <br/>
+        Los valores positivos quedan tal cual <br/>
+        Resultado:
+        <pre>h1_relu = [ 0,  0,  1.4197,  0,  0.5491,  0 ] </pre>
+        Se eliminaron dimensiones negativas -> se descartan activaciones no utiles. <br/>
+        Se mantienen solo las que representan señales "activas".<br/>
+        Se agrega no linealidad, lo cual permite al modelo aprender funciones complejas.<br/>
+        Si solo usaramos X*W + b sin ReLU, todo seria lineal, y una sola capa equivaldria a toda la red (sin sumar capacidad estructural).<br/>
+        Aqui puede cambiar de dimension al multiplicar una matriz no por las columnas sino por las filas y asi se puede agrandar o achivar.<br/>
+        <br/>
+      </li>
+
+
+
+      <li><b>1c). Contraccion: Segunda transformacion lineal</b> <br/>
+        Esto es como un red tradicional densa. <br/>
+        <pre>output_ffn = h1_relu * W2 + b2  
+        Empezamos desde : 
+        <pre>h1_relu = [ 0, 0, 1.4197, 0, 0.5491, 0 ]</pre>
+        Vuelve a dimension original (4 en este ejemplo) </pre>
+        Esta capa reconvierte de la dimension expandida (6) a la original (4). <br/>
+        Aqui puede cambiar de dimension al multiplicar una matriz no por las columnas sino por las filas y asi se puede agrandar o achivar.<br/>
+        <br/>
+        <b>Proposito: </b> <br/>
+        W1: permite crear una representacion mas rica (mas dimensiones -> + capacidad expresiva).<br/>
+        W2: reduce a la dimension original, integrando la informacion que W1 activo.<br/>
+        <br/>
+        resultado en numeros: <br/>
+        <pre>output_ffn &asymp; [ 1.01164,  0.2867,  -0.361,  0.50358 ]</pre>
+        <br/>
+      </li>
+    </ol>
+    <b>Resultado :</b> <br/>
+    Eso significa que W2 aprende a dar importancia solo a los rasgos relevantes generados por W1. <br/>
+    W1 -> decide que rasgos activar (amplia el rango) <br/>
+    ReLU -> descarta los no utiles <br/>
+    W2 -> transforma esos rasgos activados en nueva representacion (reduce)<br/>
+    <br/>
+  </li>
+
+  <li><b>Resumenes:</b> <br/>
+    <b>Comparacion Completa:</b><br/>
+    layerNorm genero[ 0.277   , -1.386  , -0.277, 1.386 ]<br/>
+    <ol>
+      <li>Etapa Vector</li>
+      <li>Entrada a FFN [ 0.277, -1.386, -0.277, 1.386 ]</li>
+      <li>Salida FFN  [ 1.01164, 0.2867, -0.361, 0.50358 ]</li>
+      <li>Suma residual [ 1.28864, -1.0993, -0.638, 1.88958 ]</li>
+      <li>LayerNorm final  [ 0.894, -1.41, -0.97, 1.48 ]</li>
+    </ol>
+    <br>
+
+    <b>Interpretacion tecnica</b> <br/>
+    <ol>
+      <li>  La FFN ajusta el embedding agregando una transformacion no lineal aprendida, que puede amplificar o reformular señales relevantes.</li>
+      <li>La suma residual mantiene informacion original, evitando que la FFN modifique demasiado el sentido semantico.</li>
+      <li>La LayerNorm estabiliza la escala, manteniendo el vector listo para pasar a la siguiente capa sin explotar ni colapsar activaciones.</li>
+      <li>Este vector resultante es ahora el nuevo embedding de "hoy" despues de la capa completa de Transformer.</li>
+    </ol>
+    <br/>
+  </li>
+
+<li> <b>Concepto de Capas: </b>: <br/>
+  Este concepto esta dado de poder revisar una y otra vez con el mismo procedimiento, lo que cambia es que la salida despues del procesamiento se puede refinar o ajustar. <br/>
+  El principio nacio de la electronica hace varias decadas atras. Siempre usamos parte de la salida para reingresarla o reinyectarla para correccion o estabilizacion. <br/>
+  Obviamente una maquina podria analizar todo de una sola vez y seria mas rapido pero seria mas complicado de manejar y lo que esta de moda ahora es usar mas y mas hardware y cada vez mas rapido y cada vez mas almacenamiento, asi que hoy en dia es algo que podemos usar con una espectatvia que va a seguir ocurriendo de esta manera. <br/>
+  El proceso se hara segun el modelo, chat GPT puede hacerlo 96 veces. <br/>
+  <br/>
+  Ahora un EJEMPLO <br/>
+  Este ejemplo no es mio, sino que se lo pedi a chatGPT, es lo adecuado ya que ella me dice como 'piensa'. <br/>
+  Lo que tenemos que tener en cuenta es que: 
+  <ol>
+    <li>) La AI no piensa,</li>
+    <li>) La AI aprovecha lo que hemos cosechado por varios anos ( internet y una cantidad ENORME de informacion digital),</li>
+    <li>) el lenguaje es finito. Aunque parezca que no lo es, y que hay infinitas palabras y que hay un combinacion infitas de como poner las palabras, NO lo es. <br/>
+    Tenemos unas cuentos cientos de palabras que usamos normalmete, y claro, hay personas que conocen muchas mas palabras y conocen muchas mas estructuras para formarla, pero lo normal es que son pocas cientas de palabras , incluso para aprender un idioma con 500 palabras estaria bien. <br/>
+    </li>
+    <li>La AI no es linguistica, es decir, contetara de forma general cuando no tengo informacion. <br/>
+    Cuando no tenga una respuesta al 100% no le importara, solo resolvera con el porcentaje mas cercano. El problema NO es de ella, es SUYO. Si usted lee, analize y compara con otros escritos y experiencia podra saber si la AI esta delirando o no. Un ejemplo de esto es que yo personalizo GPT y le exigo que cuando NO sepa, o no esta segura me escribe (verificar) al lado del texto. Y me escribe esto muchisimas veces y ademas otras veces no me lo escribe y la regaño porque esta haciendo trampa. <br/>
+    </li>
+  </ol>
+
+  <b>Empezamos</b><br/>
+  <ol>
+    <li>Frase:
+    "Hoy martes llueve, asi que..." <br>
+    <br/>
+  </li>
+
+    <li><b>Capa 1 - Entiende relaciones basicas (lo que ya viste)</b><br/>
+      Token Representacion semantica tras capa 1<br/>
+      "hoy" [es dia actual, relacionado con martes]<br/>
+      "martes"  [tercer dia de semana, se identifica como fecha actual]<br/>
+      "llueve"  [evento climatico presente]<br/>
+      Correlaciones simples, directas.  <br/>
+      <br/>
+    </li>
+
+    <li><b>Capa 2 - Empieza a deducir implicaciones</b><br/>
+      Las relaciones empiezan a cruzarse entre si.<br/>
+      Token Representacion tras capa 2<br/>
+      "hoy" [dia actual y lluvioso -> posible accion afectada]<br/>
+      "martes"  [dia laboral tipico -> posible rutina diaria]<br/>
+      "llueve"  [contexto meteorologico -> afecta movilidad]<br/>
+      Ya hay inferencia causal leve. <br/>
+      <br/>
+    </li>
+
+    <li><b>Capa 3 - Incorporacion de conocimiento aprendido durante entrenamiento</b><br/>
+      El modelo utiliza patrones comunes del dataset.<br/>
+      Ahora cada token contiene informacion propia + informacion proveniente del contexto.
+      Esta relacion no se obtiene consultando el dataset, sino aplicando patrones aprendidos
+      durante el entrenamiento. En inferencia no se accede al dataset, solo se utilizan los
+      pesos que capturan ese conocimiento. <br/>
+      Nota: Como se dara cuenta esta es una expliccion absurdamente computacional. <br/>
+      analizando: 
+      <ol>
+        <li>coocurrencias frecuentes</li>
+        <li>relaciones sintacticas</li>
+        <li>relaciones semanticas</li>
+        <li>estructuras linguisticas tipicas</li>
+        <li>implicaciones causales comunes</li>
+        <li>dependencia contextual</li>
+      </ol>
+      Durante entrenamiento el modelo ve ejemplos como: <br/>
+      "Si llueve, llevo paraguas"<br/>
+      "Esta lloviendo, me voy en coche"<br/>
+      "Lluvia -> paraguas"<br/>
+      Estas frases generan gradientes que modifican los pesos, de forma que:<br/>
+      Tokens como ("llueve", "paraguas") adquieren embeddings que tienen alta similitud<br/>
+      Nota: Asi que patrones aprendidos se refiere a: <b>adquieren embeddings que tienen alta similitud.</b>
+      <br/>
+      Otro ejemplo:  <br/>
+      Entrada Resultado esperado<br/>
+      "El perro ladra" --> al<br/>
+      "El gato maulla" --> por<br/>
+      "Hace frio, llevo…" --> abrigo<br/>
+      "Hace calor, llevo…" --> camiseta<br/>
+      Nota: Los "patrones" para los humanos es la logica, vemos un dibujo y que sabemos que es, facil, vemos un dibujo de un niño y ya sabemos que es (al menos los papas sabemos). <br/>
+      Una maquina entraria en un bucle infinito... son relaciones muy complejas de logicas, estructura de lenguaje, etc. <br/>
+      Pero lo que si hace es como vimos arriba: asociar Lluvia y paraguas con un numero similar. Asi que esa palabra cerca de la otra indica algo <b>probable</b> no ningun patron humano aprendido o logica de entendimiento, solamente hay una relacion matematica numerica. <br/>
+      <br/>
+
+
+      Token Representacion tras capa 3<br/>
+      "hoy" [dia actual + clima -> puede influir en decision posterior]*<br/>
+      "martes"  [dia normal de semana, no festividad -> rutina normal]*<br/>
+      "llueve"  [probablemente implica proteccion (paraguas), trafico, ropa]*<br/>
+      Aqui aparecen asociaciones aprendidas ("llueve" -> paraguas). <br/>
+      <br/>
+    </li>
+
+
+    <li><b>Capa 4 - Contextualizacion con sintaxis de la frase </b><br/>
+      Empieza a prepararse para decidir que sigue.<br/>
+      Token Representacion tras capa 4<br/>
+      "hoy" [dia con situacion contextual relevante -> se espera consumo logico]<br/>
+      "llueve"  [clima -> podria sugerir accion futura]<br/>
+      "lunes/martes/etc." [baja relevancia para accion pero util en coherencia]<br/>
+      "hoy" empieza a "preguntarse": .que deberia venir despues? <br/>
+      <br/>
+    </li>
+  
+    <li><b>Capa N-1 - Comprension semantica de alto nivel</b> <br/>
+      Se integran todas las inferencias.<br/>
+      Token Representacion<br/>
+      "hoy" [contexto personal + meteorologico -> consecuencias sobre logistica o decisiones ("llevar paraguas")]<br/>
+      "llueve"  [condicion causal prioritaria sobre el token siguiente]<br/>
+      Aqui la red entiende el proposito de la frase.<br/>
+      Nota: Como habra visto la cantidad de variacion que hay que tener en cuenta son de millones y millones y mas y mas. Bueno el hardware de las tarjetas de video ha sido muy bien aporvechado, incluso hay una empresa que aora hace chips especialmente dirigidos para AI. <br/>
+      Un ejemplo, es tratar de enseñarle a un niño como debe de responder socialmente.. Hay tantas cosas que puede decir mal en un reunion social, que cuando un niño habla los papas ponen atencion, porque podria decir que le gusta el pastel o que ayer noche hecho a su papa diciendo a su mama: quiero mas y mas... <br/>
+      No nos enfocamos a enseñarle a los niños que decir y que no decir TODO el tiempo, sino seria chat GPT, le ensenamos a entender a crear la logica de que las cosas personales no son para contarlas en una reunion y que ponerse en el lugar de la otra persona es importante porque nos hace ser respetuosos. <br/>
+      <br/>
+    </li>
+
+    <li><b>Ultima capa - Proyeccion hacia salida</b><br/>
+      Ya no esta pensando en descripcion, sino en que token completar.<br/>
+      Embedding "llueve" -> "por eso" -> alta probabilidad de "llevar" / "usar" / "paraguas"<br/>
+      Salida final de ejemplo<br/>
+      "Hoy martes llueve, asi que ... me llevo un paraguas."<br/>
+      El modelo podria generar probabilidades asi:<br/>
+      Token probabilidad<br/>
+      llevar  0.18<br/>
+      sacar 0.05<br/>
+      paraguas  0.64 ← destino final<br/>
+      abrigo  0.03<br/>
+      coche 0.01<br/>
+      <br/>
+    </li>
+  </ol>
+</li>
+
+
+
+<li><b>Resumen tecnico de evolucion de capas: </b><br/>
+  Que aporta cada capa<br/>
+  1 Entiende relaciones inmediatas<br/>
+  2 Deduccion leve<br/>
+  3 Saberes aprendidos del dataset<br/>
+  4-N-2 Coherencia linguistica y relacional<br/>
+  N-1 Preparacion para inferir intencion<br/>
+  N Conversion a probabilidad sobre vocabulario<br/>
+</li>
+
+</ol>
+
+
+
+
