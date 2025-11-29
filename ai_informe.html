@@ -1,0 +1,494 @@
+ 
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Informe Técnico: Análisis del Flujo de Inferencia en el Modelo Transformer GPT-2</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            line-height: 1.5;
+            margin: 2rem;
+            max-width: 900px;
+        }
+        h1, h2, h3, h4 {
+            margin-top: 1.8rem;
+            margin-bottom: 0.6rem;
+        }
+        p {
+            margin: 0.4rem 0;
+        }
+        ul, ol {
+            margin: 0.4rem 0 0.8rem 1.5rem;
+        }
+        code {
+            font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            background: #f3f3f3;
+            padding: 0 0.2rem;
+            border-radius: 3px;
+        }
+        pre {
+            background: #f3f3f3;
+            padding: 0.8rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.9rem;
+        }
+        table {
+            border-collapse: collapse;
+            margin: 0.6rem 0;
+            width: auto;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 0.3rem 0.6rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+        th {
+            background: #f7f7f7;
+        }
+        .small {
+            font-size: 0.9rem;
+        }
+        .section-number {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Informe Técnico: Análisis del Flujo de Inferencia en el Modelo Transformer GPT-2</h1>
+
+<h2>1. Introducción al Proceso de Inferencia</h2>
+
+<p>
+En el contexto de los grandes modelos de lenguaje (LLM) como GPT-2, el término <em>inferencia</em> se refiere al proceso de utilizar un modelo ya entrenado para generar una predicción o respuesta a partir de una entrada de datos. Para los arquitectos de software, comprender este flujo es de importancia estratégica, ya que define cómo una aplicación interactuará con el modelo para producir resultados en tiempo real.
+</p>
+
+<p>
+Para los arquitectos, este proceso secuencial y dependiente del estado tiene implicaciones directas en el diseño de sistemas, influyendo en las decisiones sobre estrategias de procesamiento por lotes (<em>batching</em>), la optimización de la latencia para aplicaciones en tiempo real y la gestión de los recursos computacionales necesarios para cada paso de la generación <em>token por token</em>.
+</p>
+
+<p>
+Este proceso es fundamentalmente distinto al entrenamiento, que es la fase de aprendizaje computacionalmente intensiva donde el modelo ajusta sus parámetros internos a partir de un vasto corpus de datos. A diferencia de las redes neuronales clásicas, donde las entradas pueden procesarse en paralelo de forma independiente, el procesamiento en un Transformer es inherentemente secuencial y contextual: el significado de cada elemento depende de su relación con todos los demás elementos de la secuencia.
+</p>
+
+<p>
+Este informe desglosará cada etapa del flujo de inferencia, comenzando por la preparación de la entrada para su procesamiento por el modelo.
+</p>
+
+<h2>2. Etapa 1: Preparación de la Entrada y Creación de Embeddings</h2>
+
+<p>
+Antes de que un modelo Transformer pueda procesar texto, el lenguaje humano debe ser traducido a una representación matemática estructurada. Esta fase de preparación de la entrada es fundamental, ya que convierte una secuencia de caracteres en un formato numérico de alta dimensión que encapsula tanto el significado semántico de las palabras como su orden dentro de la secuencia.
+</p>
+
+<p>
+Este proceso se divide en dos pasos principales: la tokenización y la construcción de un <em>embedding</em> inicial.
+</p>
+
+<h3>2.1. Tokenización: De Texto a Identificadores Numéricos</h3>
+
+<p>
+El primer paso es la tokenización, donde el texto de entrada se descompone en unidades más pequeñas llamadas <em>tokens</em>. A cada token único en el vocabulario del modelo se le asigna un identificador numérico (ID de token). Este proceso convierte una cadena de texto en una secuencia de números enteros que el modelo puede interpretar.
+</p>
+
+<p>Por ejemplo, al procesar el siguiente texto:</p>
+
+<pre>Hola mundo
+
+Esta es una prueba de tokenizacion real.</pre>
+
+<p>
+El tokenizador lo convierte en un tensor de identificadores numéricos, como se muestra a continuación:
+</p>
+
+<ul>
+    <li><strong>input_ids</strong> resultante: <code>tensor([[   39,  5708, 27943,   78,  198, 22362,   64,  1658,   555,   64,  778,  518,  7012,  390, 11241,  528, 49443,  1103,   13,  198]])</code></li>
+    <li><strong>Forma del tensor (shape)</strong>: <code>torch.Size([1, 20])</code></li>
+</ul>
+
+<p>
+Esto indica que el texto original ha sido descompuesto en una secuencia de 20 tokens, cada uno representado por un ID único.
+</p>
+
+<h3>2.2. Construcción del Embedding Inicial</h3>
+
+<p>
+Cada ID de token debe ser convertido en un vector denso y significativo. Este embedding inicial se construye sumando dos componentes vectoriales distintos, ambos con una dimensionalidad de 768 en el caso de GPT-2.
+</p>
+
+<h4>2.2.1. Embedding de Token</h4>
+
+<p>
+Cada ID de token se utiliza como un índice para consultar una gran tabla de embeddings pre-entrenada. Esta tabla asigna a cada token un vector fijo de 768 dimensiones que representa su significado semántico. Este vector fue aprendido durante la fase de entrenamiento del modelo y permanece inalterado durante la inferencia. Por ejemplo, el token para <code>"Hola"</code> siempre corresponderá al mismo vector de 768 valores.
+</p>
+
+<h4>2.2.2. Embedding de Posición</h4>
+
+<p>
+Para que el modelo comprenda el orden de las palabras, se genera un segundo vector de 768 dimensiones. Este vector se obtiene de una tabla de embeddings de posición separada. A diferencia del embedding de token, este vector no depende del contenido de la palabra, sino únicamente de su posición en la secuencia de entrada (por ejemplo, la primera palabra, la segunda, y así sucesivamente).
+</p>
+
+<h3>2.3. Embedding Combinado Inicial</h3>
+
+<p>
+Los dos vectores —el embedding de token y el embedding de posición— se suman elemento a elemento para crear el embedding inicial de cada token. La lógica subyacente es que tanto el significado de una palabra (<em>qué es</em>) como su ubicación en la frase (<em>dónde está</em>) son cruciales para determinar el contexto completo.
+</p>
+
+<p>
+Este vector combinado, que integra información semántica y posicional, sirve como la entrada inicial para el proceso de contextualización que ocurre dentro de los bloques Transformer.
+</p>
+
+<p>El resultado de esta operación es un tensor final con la siguiente forma:</p>
+
+<ul>
+    <li><strong>Forma del tensor de embeddings</strong>: <code>torch.Size([1, 20, 768])</code></li>
+</ul>
+
+<p>
+Esto representa un lote (1), con 20 tokens, donde cada token es ahora un vector de 768 dimensiones. Un ejemplo del primer embedding de la secuencia podría verse así (mostrando solo los primeros 10 de 768 valores):
+</p>
+
+<pre>tensor([-0.2077, -0.1556, -0.1638, 0.0468, -0.0956, -0.3012,
+        0.1546,  0.1558, -0.3139, -0.0316, ...])</pre>
+
+<p>
+Estos embeddings iniciales, que ya contienen información semántica y posicional, están ahora listos para ser procesados por el núcleo del modelo: los bloques Transformer.
+</p>
+
+<h2>3. Etapa 2: El Bloque Transformer y el Procesamiento Contextual</h2>
+
+<p>
+El bloque Transformer es la unidad de procesamiento fundamental y repetitiva del modelo. Su propósito es refinar iterativamente los embeddings de entrada. Dentro de cada bloque, cada token puede "mirar" a todos los demás tokens de la secuencia para reinterpretar y enriquecer su propia representación vectorial con información contextual completa.
+</p>
+
+<p>
+Cada bloque se compone de dos subcapas principales: un mecanismo de auto-atención y una red de proyección <em>feed-forward</em>.
+</p>
+
+<h3>3.1. Subcapa 1: Mecanismo de Auto-Atención Multi-Cabeza</h3>
+
+<p>
+La auto-atención es el mecanismo que permite al modelo ponderar dinámicamente la importancia de las diferentes palabras en la secuencia de entrada al procesar una palabra específica. Este proceso permite que la información fluya entre los tokens, contextualizándolos.
+</p>
+
+<h4>3.1.1. Proyección a Query (Q), Key (K) y Value (V)</h4>
+
+<p>
+El embedding de entrada de cada token se proyecta en tres vectores distintos: <em>Query</em>, <em>Key</em> y <em>Value</em>. Esto se logra multiplicando el vector de embedding por tres matrices de pesos (<code>W_Q</code>, <code>W_K</code>, <code>W_V</code>) que fueron aprendidas durante el entrenamiento.
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Elemento</th>
+            <th>Descripción</th>
+            <th>Origen</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>X</td>
+            <td>Embedding inicial (token + posición) para cada token.</td>
+            <td>Calculado en la etapa de preparación.</td>
+        </tr>
+        <tr>
+            <td>W_Q</td>
+            <td>Matriz de pesos para generar el vector Query.</td>
+            <td>Aprendida en entrenamiento (valor fijo).</td>
+        </tr>
+        <tr>
+            <td>W_K</td>
+            <td>Matriz de pesos para generar el vector Key.</td>
+            <td>Aprendida en entrenamiento (valor fijo).</td>
+        </tr>
+        <tr>
+            <td>W_V</td>
+            <td>Matriz de pesos para generar el vector Value.</td>
+            <td>Aprendida en entrenamiento (valor fijo).</td>
+        </tr>
+    </tbody>
+</table>
+
+<p>Conceptualmente, estos vectores representan:</p>
+
+<ul>
+    <li><strong>Query (Q)</strong>: ¿Qué información estoy buscando?</li>
+    <li><strong>Key (K)</strong>: ¿Qué información tengo para ofrecer?</li>
+    <li><strong>Value (V)</strong>: La información real que se compartirá.</li>
+</ul>
+
+<h4>3.1.2. Cálculo de los Pesos de Atención</h4>
+
+<p>
+A continuación, el modelo calcula una puntuación de atención entre cada par de tokens usando sus vectores Query y Key. Esta puntuación determina cuánto "interés" debe prestar un token a otro. La fórmula es la siguiente:
+</p>
+
+<pre>attention_scores = softmax(Q · Kᵀ / √dₖ)</pre>
+
+<p>
+El resultado es una matriz de puntuaciones (de 20 × 20 en nuestro ejemplo), donde cada fila representa un token observador y cada columna representa el token al que se le presta atención. Es importante notar que el vector V (<em>Value</em>) no se utiliza en este cálculo; esta fase solo determina los pesos de la atención.
+</p>
+
+<h4>3.1.3. Creación del Embedding Contextualizado</h4>
+
+<p>
+Finalmente, la matriz de pesos de atención se aplica a los vectores de Valor (V). Para cada token, se calcula un nuevo embedding mediante una suma ponderada de los vectores V de todos los tokens de la secuencia, donde los pesos son las puntuaciones de atención calculadas.
+</p>
+
+<pre>nuevo_embedding[i] = Σ_j ( attention_scores[i, j] × V[j] )</pre>
+
+<p><strong>Ejemplo ilustrativo:</strong> Consideremos la frase <code>"Hoy martes llueve"</code> y calculemos el nuevo embedding para el token <code>"hoy"</code>.</p>
+
+<ol>
+    <li>
+        <p>Vectores V simplificados (4 dimensiones):</p>
+        <ul>
+            <li>V["hoy"] = [0.3, 0.2, 0.1, 0.5]</li>
+            <li>V["martes"] = [-0.4, 0.6, 0.3, -0.2]</li>
+            <li>V["llueve"] = [0.7, -0.1, 0.0, 0.2]</li>
+        </ul>
+    </li>
+    <li>
+        <p>Pesos de atención calculados para "hoy":</p>
+        <ul>
+            <li>Atención a "hoy": 0.2</li>
+            <li>Atención a "martes": 0.7</li>
+            <li>Atención a "llueve": 0.1</li>
+        </ul>
+    </li>
+    <li>
+        <p>Cálculo del nuevo embedding contextualizado:</p>
+        <ul>
+            <li>0.2 × V["hoy"] = [ 0.06, 0.04, 0.02, 0.10]</li>
+            <li>0.7 × V["martes"] = [-0.28, 0.42, 0.21, -0.14]</li>
+            <li>0.1 × V["llueve"] = [ 0.07, -0.01, 0.00, 0.02]</li>
+            <li>Suma total (nuevo embedding de "hoy"): <strong>[-0.15, 0.45, 0.23, -0.02]</strong></li>
+        </ul>
+    </li>
+</ol>
+
+<p>
+El vector resultante para <code>"hoy"</code> es una nueva representación sintetizada. Si bien el alto peso de atención (0.7) hace que el vector de <code>"martes"</code> sea el contribuyente dominante, el embedding final es una mezcla compuesta, sutilmente influenciada por todos los tokens en proporción a su relevancia calculada. Este es el fundamento matemático de la comprensión contextual en los Transformers.
+</p>
+
+<h3>3.2. Subcapa 1: Conexión Residual y Normalización de Capa</h3>
+
+<p>
+Después del mecanismo de atención, se aplican dos operaciones cruciales para la estabilidad numérica y la eficacia del modelo.
+</p>
+
+<h4>3.2.1. Conexión Residual (<em>Add</em>)</h4>
+
+<p>
+El embedding original (<code>X</code>) se suma elemento a elemento al nuevo embedding contextualizado (<code>Embedding_Score</code>) generado por la atención:
+</p>
+
+<pre>Embedding_Residual = X + Embedding_Score</pre>
+
+<p>
+Esta operación, conocida como conexión residual o <em>skip connection</em>, es estratégicamente vital. Asegura que la información original del token no se pierda durante la transformación, preservando su significado base mientras se le añade el nuevo contexto.
+</p>
+
+<h4>3.2.2. Normalización de Capa (<em>LayerNorm</em>)</h4>
+
+<p>
+El vector resultante de la suma residual se normaliza. La normalización de capa (<em>LayerNorm</em>) reescala las activaciones para que tengan una media cercana a 0 y una varianza cercana a 1.
+</p>
+
+<p>Fórmula general:</p>
+
+<pre>LayerNorm(x) = (x - media) / sqrt(varianza + ε)</pre>
+
+<p>Ejemplo de cálculo para un vector <code>x = [2.0, 0.5, 1.5, 3.0]</code>:</p>
+
+<ol>
+    <li>Media: (2.0 + 0.5 + 1.5 + 3.0) / 4 = 1.75</li>
+    <li>Varianza: ((2.0-1.75)² + (0.5-1.75)² + (1.5-1.75)² + (3.0-1.75)²) / 4 = 0.8125</li>
+    <li>Denominador: sqrt(0.8125 + 1e-5) ≈ 0.90139</li>
+    <li>Vector normalizado: ≈ [ 0.277, -1.386, -0.277, 1.386 ]</li>
+</ol>
+
+<p>
+Esta operación estabiliza el flujo de datos a través de la red, evitando que los valores de las activaciones crezcan o disminuyan descontroladamente en capas sucesivas.
+</p>
+
+<h3>3.3. Subcapa 2: Red de Proyección Feed-Forward (FFN)</h3>
+
+<p>
+La segunda subcapa principal del bloque Transformer es una red <em>feed-forward</em> (FFN). A diferencia del mecanismo de atención, que procesa las relaciones entre tokens, la FFN procesa cada embedding de token de forma aislada a través de una transformación no lineal.
+</p>
+
+<h4>3.3.1. Transformación No Lineal</h4>
+
+<p>
+La expansión hacia un espacio de mayor dimensionalidad puede entenderse como la creación de un "espacio de trabajo computacional". En este espacio expandido, el modelo tiene más libertad expresiva para desenredar y aislar características complejas y abstractas del vector de entrada, características que podrían no ser linealmente separables en la dimensión original.
+</p>
+
+<p>
+La activación ReLU actúa entonces como un filtro, preservando solo las características más destacadas antes de que la capa de contracción proyecte esta representación refinada de nuevo al espacio original de 768 dimensiones. Este proceso se ejecuta en tres pasos:
+</p>
+
+<ol>
+    <li>
+        <strong>Expansión:</strong> El vector de entrada se proyecta a una dimensión mayor mediante una transformación lineal:
+        <br><code>h1 = x_norm · W1 + b1</code>
+        <br>
+        <span class="small">Ejemplo: [ 0.277, -1.386, ...] (4D) → [ -0.2881, -0.7484, ...] (6D)</span>
+    </li>
+    <li>
+        <strong>Función de activación ReLU:</strong> Se aplica la función:
+        <br><code>ReLU(x) = max(0, x)</code>
+        <br>que reemplaza todos los valores negativos por cero. Esto introduce no linealidad en el modelo, una propiedad esencial para aprender funciones complejas.
+        <br>
+        <span class="small">Ejemplo: [ -0.2881, -0.7484, 1.4197, -0.3218, 0.5491, -0.9423 ] → [ 0, 0, 1.4197, 0, 0.5491, 0 ]</span>
+    </li>
+    <li>
+        <strong>Contracción:</strong> El vector resultante se proyecta de nuevo a la dimensión original mediante una segunda transformación lineal:
+        <br><code>output_ffn = h1_relu · W2 + b2</code>
+        <br>
+        <span class="small">Ejemplo: [ 0, 0, 1.4197, ...] (6D) → [ 1.01164, 0.2867, ...] (4D)</span>
+    </li>
+</ol>
+
+<h3>3.4. Subcapa 2: Conexión Residual y Normalización Final</h3>
+
+<p>
+De manera análoga a la subcapa de atención, la salida de la FFN también pasa por una conexión residual y una capa de normalización final. Este proceso consolida la transformación del embedding dentro de un bloque Transformer completo.
+</p>
+
+<p>A continuación se resume la evolución del vector a través de estas etapas (ejemplo en 4D):</p>
+
+<ol>
+    <li>
+        <strong>Entrada a FFN (Salida de LayerNorm 1)</strong>:
+        <br><code>[ 0.277, -1.386, -0.277, 1.386 ]</code>
+        <br>Este es el vector contextualizado por la atención y normalizado.
+    </li>
+    <li>
+        <strong>Salida de FFN</strong>:
+        <br><code>[ 1.01164, 0.2867, -0.361, 0.50358 ]</code>
+        <br>El vector ha sido ajustado por la transformación no lineal, que amplifica o reformula señales semánticas relevantes.
+    </li>
+    <li>
+        <strong>Suma Residual</strong>:
+        <br><code>[ 1.28864, -1.0993, -0.638, 1.88958 ]</code>
+        <br>Se suma la entrada a la FFN con la salida de la FFN, preservando la información original y evitando que la FFN modifique drásticamente el significado.
+    </li>
+    <li>
+        <strong>LayerNorm Final</strong>:
+        <br><code>[ 0.894, -1.41, -0.97, 1.48 ]</code>
+        <br>El vector se estabiliza de nuevo, dejándolo listo para ser la entrada del siguiente bloque Transformer.
+    </li>
+</ol>
+
+<p>
+Este bloque completo se apila múltiples veces. Cada capa refina progresivamente la comprensión del modelo sobre las complejas interacciones semánticas y sintácticas de la secuencia.
+</p>
+
+<h2>4. Etapa 3: Procesamiento Iterativo y Generación de la Salida Final</h2>
+
+<p>
+La arquitectura de GPT-2 consiste en apilar múltiples bloques Transformer, uno tras otro. Esta arquitectura apilada es análoga a una <em>pipeline</em> de procesamiento de señales multietapa con bucles de retroalimentación, donde la salida de cada bloque —una señal parcialmente refinada— se alimenta a la siguiente para una mayor corrección y estabilización, permitiendo el desarrollo progresivo de características semánticas complejas.
+</p>
+
+<p>
+Este procesamiento iterativo permite un refinamiento profundo de la representación semántica de cada token, pasando de correlaciones simples a inferencias de alto nivel. Un modelo como GPT puede tener hasta 96 de estas capas. (verificar)
+</p>
+
+<h3>4.1. Evolución Semántica a Través de las Capas</h3>
+
+<p>
+Para ilustrar cómo evoluciona la "comprensión" del modelo a través de las capas, consideremos la frase:
+</p>
+
+<pre>Hoy martes llueve, asi que...</pre>
+
+<ul>
+    <li>
+        <strong>Capa 1:</strong> Se entienden relaciones básicas y directas. El modelo correlaciona <code>"hoy"</code> con <code>"martes"</code> como fecha actual y <code>"llueve"</code> como un evento climático presente.
+    </li>
+    <li>
+        <strong>Capa 2:</strong> Comienzan a deducirse implicaciones causales leves. <code>"hoy"</code> se reinterpreta como un "día lluvioso" que puede afectar una acción; <code>"llueve"</code> se asocia con un impacto en la movilidad.
+    </li>
+    <li>
+        <strong>Capa 3:</strong> El modelo comienza a aplicar el conocimiento generalizado de sus datos de entrenamiento. A través de la exposición repetida a textos donde tokens como <code>"lluvia"</code> y <code>"paraguas"</code> coexisten en contextos causales, el modelo ha ajustado sus pesos de tal manera que sus respectivos vectores de embedding ahora exhiben una alta similitud matemática. En esta capa, el mecanismo de atención aprovecha esta similitud aprendida para enriquecer el embedding de <code>"llueve"</code> con estas asociaciones probabilísticas.
+    </li>
+    <li>
+        <strong>Capas intermedias (4 a N−2):</strong> Se refina la coherencia contextual y sintáctica. El modelo ajusta las representaciones para prepararse para una continuación lógica, sopesando la relevancia de cada token para la acción futura.
+    </li>
+    <li>
+        <strong>Capa N−1:</strong> Se integran todas las inferencias para una comprensión semántica de alto nivel. La representación de <code>"llueve"</code> ahora encapsula su rol como la condición causal prioritaria que debe determinar el siguiente token.
+    </li>
+</ul>
+
+<h3>4.2. Generación del Siguiente Token</h3>
+
+<p>
+La función de la última capa de Transformer es diferente. Una vez que los embeddings han sido completamente refinados, el embedding final del último token de la secuencia de entrada se proyecta hacia el vocabulario completo del modelo. Esta proyección genera una distribución de probabilidad sobre todos los tokens posibles, indicando cuál es el más probable para continuar la secuencia.
+</p>
+
+<p>Para la frase: <code>"Hoy martes llueve, asi que..."</code>, el modelo podría generar las siguientes probabilidades:</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Token</th>
+            <th>Probabilidad</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>paraguas</td>
+            <td>0.64</td>
+        </tr>
+        <tr>
+            <td>llevar</td>
+            <td>0.18</td>
+        </tr>
+        <tr>
+            <td>sacar</td>
+            <td>0.05</td>
+        </tr>
+        <tr>
+            <td>abrigo</td>
+            <td>0.03</td>
+        </tr>
+        <tr>
+            <td>coche</td>
+            <td>0.01</td>
+        </tr>
+    </tbody>
+</table>
+
+<p>
+El modelo selecciona el token con la probabilidad más alta, en este caso <code>"paraguas"</code>, como la continuación más lógica y lo genera como salida.
+</p>
+
+<h2>5. Conclusión: La Naturaleza Computacional del “Entendimiento”</h2>
+
+<p>
+El proceso de inferencia de GPT-2 es una secuencia orquestada de transformaciones matemáticas: desde la tokenización inicial del texto, la creación de embeddings que capturan significado y posición, el procesamiento iterativo a través de múltiples bloques de Transformer —donde los mecanismos de atención y las redes feed-forward refinan el contexto—, hasta la proyección final que genera una distribución de probabilidad para el siguiente token.
+</p>
+
+<p>
+Es crucial reflexionar sobre la naturaleza de este "entendimiento". El proceso descrito es puramente computacional. El modelo de IA no "piensa" ni posee una lógica humana abstracta. Su habilidad para generar texto coherente y contextualizado se deriva de la asociación de patrones numéricos, específicamente la similitud entre embeddings, que ha aprendido a partir de una cantidad masiva de datos durante el entrenamiento.
+</p>
+
+<p>
+La relación entre <code>"lluvia"</code> y <code>"paraguas"</code> no es un concepto lógico para el modelo, sino una fuerte correlación matemática entre sus vectores. Por lo tanto, el resultado de la inferencia es siempre una predicción probabilística, no una verdad absoluta, y requiere un análisis crítico por parte del usuario.
+</p>
+
+<p>
+Para el arquitecto de software, esta distinción es primordial: el sistema que se está integrando no es un motor de razonamiento, sino un sofisticado aparato de coincidencia de patrones de alta dimensionalidad. Sus resultados deben ser tratados como hipótesis probabilísticas, no como verdades definitivas, y la responsabilidad de la validación crítica recae enteramente en el sistema de implementación y sus operadores humanos.
+</p>
+
+</body>
+</html>
+
+
+
+Sin archivos seleccionadosSin archivos seleccionados
+ChatGPT puede cometer errores. Comprueba la información importante. Consulta Preferencias de cookies.
